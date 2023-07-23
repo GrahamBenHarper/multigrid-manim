@@ -15,6 +15,32 @@ def applySmoother(x: np.array, b: np.array, A: np.array, omega: float):
   r = b - np.matmul(A,x)
   return x + omega*np.matmul(Dinv,r)
 
+# apply a linear interpolation restrictor matrix-free
+# Briggs uses a factor of 1/4 for R
+def applyLinearInterpR(x: np.array):
+  if(len(x)%2==0):
+    print("Attempting to apply LinearInterpP on a vector with {} entries! Only odd numbers of entries are supported!".format(len(x)))
+  
+  scale = 4. #2.*math.sqrt(2.)
+  xout = np.zeros(int((len(x)-1)/2))
+  for i in range(0,len(xout)):
+    xout[i] = (x[2*i] + 2.*x[2*i+1] + x[2*i+2])/scale
+  
+  return xout
+
+# apply a linear interpolation prolongator matrix-free
+# Briggs uses a factor of 1/2 for P
+def applyLinearInterpP(x: np.array):  
+  xout = np.zeros(2*len(x)+1)
+
+  scale = 2. #2.*math.sqrt(2.)
+  xout[0] = x[0]/scale
+  for i in range(0,len(x)):
+    xout[2*i+1] = 2*x[i]/scale
+    xout[2*i+2] = (x[i]+x[i+1])/scale
+  
+  return xout
+
 # defines a piecewise linear function from [0,1] to the convex hull of the input points
 class PiecewiseLinearFunction:
   def __init__(self,y_values):
@@ -34,6 +60,7 @@ class PiecewiseLinearFunction:
     t = x*(self.num_elems) - xindex
     # interpolate as (1-t)x(i) + t x(i+1)
     return (1-t)*self.y_values[xindex] + t*self.y_values[xindex+1]
+    
 
 # A class which can be used to apply a Jacobi smoother for a 1D Laplace problem
 # This assumes the Laplacian matrix is [-1, 2, -1]
@@ -53,6 +80,63 @@ class JacobiLaplaceSmoother:
     out_vector.append(x[-1] + self.omega*0.5*(self.rhs[-1] - (2*x[-1]-x[-2])))
 
     return out_vector
+
+class GridTransfers(Scene):
+  def construct(self):
+    # num_fine is the number of fine grid points
+    # suitable choices include 21, 43, 87
+    num_fine = 87
+    num_intermediate = int((num_fine-1)/2)
+    num_coarse = int((num_intermediate-1)/2)
+    
+    # setup text labels
+    graph1_text = Text("Fine Grid").scale(0.8)
+    graph2_text = Text("Intermediate Grid").scale(0.8)
+    graph3_text = Text("Coarse Grid").scale(0.8)
+
+    # setup initial axes (will be reused later via copy())
+    ax1 = Axes(
+      x_range=[0, 1.1, 0.2],
+      y_range=[-1.1, 1.1, 0.2],
+      # note: last label in the range won't show up if using np.arange(0,5,1)
+      x_axis_config={"numbers_to_include": np.arange(0, 1.1, 1)},
+      y_axis_config={"numbers_to_include": np.arange(-1, 1.1, 0.4)},
+      tips=False,
+    )
+    ax1.scale(0.3).shift(2.5*UP + 2*LEFT)
+    
+    # draw graph number 1
+    np.random.seed(42)
+    graph1_text.move_to(ax1).shift(4*RIGHT) # position text to the right of the axes
+    graph1_x = np.linspace(0,1,num_fine)
+    #graph1_y = 2*np.random.rand(num_fine)-1
+    graph1_y = np.sin(10.*math.pi*graph1_x) + np.sin(25.*math.pi*graph1_x) + np.sin(50*math.pi*graph1_x)
+    graph1 = ax1.plot_line_graph(x_values=graph1_x, y_values=graph1_y, line_color=BLUE, add_vertex_dots=False) # plot it as a line graph
+
+    # draw graph number 2
+    ax2 = ax1.copy().shift(2.5*DOWN)
+    graph2_text.move_to(ax2).shift(4*RIGHT)
+    graph2_x = np.linspace(0,1,num_intermediate)
+    graph2_y = applyLinearInterpR(graph1_y)
+    graph2 = ax1.plot_line_graph(x_values=graph2_x, y_values=graph2_y, line_color=RED, add_vertex_dots=False)
+
+    # draw graph number 3
+    ax3 = ax2.copy().shift(2.5*DOWN)
+    graph3_text.move_to(ax3).shift(4*RIGHT)
+    graph3_x = np.linspace(0,1,num_coarse)
+    graph3_y = applyLinearInterpR(graph2_y)
+    graph3 = ax1.plot_line_graph(x_values=graph3_x, y_values=graph3_y, line_color=GREEN, add_vertex_dots=False)
+    
+    # animate everything in order
+    self.play(Write(graph1_text),Create(ax1))
+    self.play(Create(graph1),run_time=3)
+    self.wait()
+    #self.play(Write(graph2_text),Create(ax2))
+    self.play(Create(graph2),run_time=3)
+    self.wait()
+    #self.play(Write(graph3_text),Create(ax3))
+    self.play(Create(graph3),run_time=3)
+    self.wait()
 
 class Interpolation(Scene):
   def construct(self):
@@ -108,7 +192,7 @@ class Interpolation(Scene):
 class JacobiSmoother(Scene):
   def construct(self):
     # num_fine is the main parameter for this scene
-    num_fine = 51
+    num_fine = 89
     h = 1./(num_fine-1)
     np.random.seed(42)
     graph_x = np.linspace(0,1,num_fine)
