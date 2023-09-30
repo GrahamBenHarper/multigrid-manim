@@ -3,21 +3,39 @@ import numpy as np
 import math
 import random
 
-def createSineVector(coordinates: np.array):
+def create1dLaplaceMatrix(n: int, bcs: bool = True) -> np.array:
+  """
+  Create a Laplacian matrix corresponding to the 1D (1/h^2)*[-1,2,-1] stencil.
+  @param n determines the size of the n-by-n matrix A
+  @param bcs determines if the first and last row are assigned boundary conditions
+  Note: For a [0,L] domain, h=L/(n-1), so one should modify A = (1./L**2)*A
+  """
+  # assume h=1./(n-1) for the problem.
+  h = 1./(n-1)
+  A = (1./(h**2))*(np.diag(2*np.ones(n)) + np.diag(-np.ones(n-1),1) + np.diag(-np.ones(n-1),-1))
+  # if bcs is true, zero out the first and last rows and set the diagonal to 1.
+  if bcs:
+    A[0,:] = np.zeros(n)
+    A[0,0] = 1
+    A[n-1,:] = np.zeros(n)
+    A[n-1,n-1] = 1
+  return A
+
+def createSineVector(coordinates: np.array) -> np.array:
   return np.sin(coordinates)
 
-def createRandomVector(coordinates: np.array):
+def createRandomVector(coordinates: np.array) -> np.array:
   return np.random.rand(len(coordinates))
 
 # apply the smoother x = x + omega*Dinv(b-Ax)
-def applySmoother(x: np.array, b: np.array, A: np.array, omega: float):
+def applySmoother(x: np.array, b: np.array, A: np.array, omega: float) -> np.array:
   Dinv = np.diag(1./np.diag(A))
   r = b - np.matmul(A,x)
   return x + omega*np.matmul(Dinv,r)
 
 # apply a linear interpolation restrictor matrix-free
 # Briggs uses a factor of 1/4 for R
-def applyLinearInterpR(x: np.array):
+def applyLinearInterpR(x: np.array) -> np.array:
   if(len(x)%2==0):
     print("Attempting to apply LinearInterpP on a vector with {} entries! Only odd numbers of entries are supported!".format(len(x)))
   
@@ -30,7 +48,7 @@ def applyLinearInterpR(x: np.array):
 
 # apply a linear interpolation prolongator matrix-free
 # Briggs uses a factor of 1/2 for P
-def applyLinearInterpP(x: np.array):  
+def applyLinearInterpP(x: np.array) -> np.array:
   xout = np.zeros(2*len(x)+1)
 
   scale = 2. #2.*math.sqrt(2.)
@@ -41,7 +59,43 @@ def applyLinearInterpP(x: np.array):
   
   return xout
 
-# defines a piecewise linear function from [0,1] to the convex hull of the input points
+# show how Jacobi affects the breakdown of frequency
+class JacobiFrequency(Scene):
+  def construct(self):
+    title = MathTex(r"\mbox{Solve} Ax=b").to_edge(UP)
+    r_label = MathTex(r"r = b - Ax").to_edge(LEFT)
+    self.play(Write(title),Write(r_label))
+
+    # RNG seed for reproducibility
+    np.random.seed(42)
+    # number of points
+    n = 101
+    # x coordinates of line, and the answer
+    x_coords = np.linspace(0,1,n)
+    u = np.sin(2*math.pi*x_coords)
+    A = create1dLaplaceMatrix(n)
+    # use the answer to form the RHS
+    b = np.matmul(A,u)
+    # create an initial guess, but pre-break the pieces by smooth and non-smooth components
+    xrand = np.random.rand(n)/10.
+    xsmooth = 4.*np.sin(8.*math.pi*x_coords) + 4.*np.sin(4*math.pi*x_coords) + 0.*np.cos(2*math.pi*x_coords)
+    x = xrand+xsmooth
+    # compute residual
+    r = b - np.matmul(A,x)
+    
+    # setup axes and draw a plot
+    ax_main = Axes(
+      x_range=[0, 1.1, 0.2],
+      y_range=[-n**2, n**2, 1000], # note: last label in the range won't show up if using np.arange(0,5,1)
+      x_axis_config={"numbers_to_include": np.arange(0, 1.1, 1)},#      y_axis_config={"numbers_to_include": np.arange(-1, 1.1, 0.4)},
+      tips=False,
+    ).scale(0.5).shift(0.8*RIGHT)
+    graph_main = ax_main.plot_line_graph(x_values=x_coords, y_values=r, line_color=BLUE, add_vertex_dots=False)
+
+    self.play(Create(ax_main),Create(graph_main))
+    self.wait(3)
+
+# Defines a piecewise linear function from [0,1] to the convex hull of the input points
 class PiecewiseLinearFunction:
   def __init__(self,y_values):
     self.y_values = y_values
@@ -199,16 +253,10 @@ class JacobiSmoother(Scene):
     graph_y = 2*np.random.rand(num_fine)-1
     
     sol = np.sin(2*math.pi*graph_x)
-    A = np.diag(2*np.ones(num_fine)) + np.diag(-np.ones(num_fine-1),1) + np.diag(-np.ones(num_fine-1),-1)
-    A = A/(h**2)
+    A = create1dLaplaceMatrix(num_fine)
+
     #b = np.matmul(A,sol)
     b = -((2*math.pi)**2)*np.sin(2*math.pi*graph_x)
-
-    # fix boundary conditions
-    A[0,:] = np.zeros(num_fine)
-    A[0,0] = 1
-    A[num_fine-1,:] = np.zeros(num_fine)
-    A[num_fine-1,num_fine-1] = 1
     b[0] = 0
     b[num_fine-1] = 0
 
@@ -275,3 +323,84 @@ class JacobiSmoother(Scene):
     # #self.add(ax, graph, dot_1, dot_2, moving_dot)
     # self.add(ax, graph, top_text)
     # self.play(Transform(graph, graph_smoothed))
+
+class HeatEquation(Scene):
+  def construct(self):
+    # Generic setup
+    title_text = Text("Jacobi's Method — Clamped Heat Equation").scale(0.8).shift(3*UP)
+    it_text = Text("Iteration: 0").scale(0.5).shift(1.8*UP)
+    eq_text = MathTex(r"\mathbf{x} = \mathbf{x} + \omega D^{-1}(\mathbf{b}-A\mathbf{x})").scale(0.8).shift(2.4*UP)
+
+    # Physics setup
+    # heat equation with left and right ends clamped, no forcing
+    bc_left = 0.4
+    bc_right = 1.0
+
+    # Mesh/discretization setup
+    n = 101
+    h = 1./(n-1)
+    graph_x = np.linspace(0,1,n)
+    graph_y = graph_x*0.
+    graph_y[0] = bc_left
+    graph_y[-1] = bc_right
+    n_text = Text(f"n = {n} variables").scale(0.5).shift(2*DOWN)
+    self.play(Write(title_text),Write(it_text),Write(eq_text),Write(n_text))
+    
+    # Matrix and RHS setup
+    num_its = 101
+    A = create1dLaplaceMatrix(n)
+    b = graph_y
+    sol = np.linalg.solve(A,b)    
+    
+    # Setup axes
+    ax = Axes(
+      x_range=[0, 1.1, 0.2],
+      y_range=[-1.1, 1.1, 0.2],
+      # note: last label in the range won't show up if using np.arange(0,5,1)
+      x_axis_config={"numbers_to_include": np.arange(0, 1.1, 1)},
+      y_axis_config={"numbers_to_include": np.arange(-1, 1.1, 0.4)},
+      tips=False,
+    ).shift(1.5*DOWN+0.5*RIGHT)
+    graph = ax.plot_line_graph(x_values=graph_x, y_values=graph_y, line_color=BLUE, add_vertex_dots=False)
+    graph_sol = ax.plot_line_graph(x_values=graph_x, y_values=sol, line_color=RED, add_vertex_dots=False)["line_graph"]
+    graph_sol = DashedVMobject(graph_sol)
+    sol_text = Text("true solution",color=RED).scale(0.4).shift(2.*LEFT+UP)
+    numsol_text = Text("numerical solution",color=BLUE).scale(0.4).shift(DOWN+LEFT)
+    box = SurroundingRectangle(graph, buff=0.05, color=WHITE)
+    bcno_text = Text("0°C").scale(0.5).align_to(box,[-1., -1., 0.]).shift(0.8*LEFT)
+    bclo_text = Text("40°C").scale(0.5).align_to(box,[-1., 0., 0.]).shift(LEFT+0.4*DOWN)
+    bchi_text = Text("100°C").scale(0.5).align_to(box,[1., 1., 0.]).shift(1.2*RIGHT)
+    self.play(Create(graph),Create(numsol_text),Create(box),Create(bcno_text),Create(bclo_text),Create(bchi_text))
+    self.wait(1)
+    self.play(Create(graph_sol),Create(sol_text))
+    self.wait(1)
+    
+    # Animate Jacobi
+    # first 10 iterations are done one at a time
+    for it in range(1,min(10,num_its)):
+      graph_y = applySmoother(graph_y,b,A,2./3.)
+      new_graph = ax.plot_line_graph(x_values=graph_x, y_values=graph_y, line_color=BLUE, add_vertex_dots=False)
+      self.remove(it_text)
+      it_text = Text(f"Iteration: {it}").scale(0.5).shift(1.8*UP)
+      self.add(it_text)
+      self.remove(graph)
+      self.play(ReplacementTransform(graph,new_graph),run_time=0.3)
+      graph = new_graph
+      self.remove(new_graph)
+
+    # now step 5 at a time
+    for it in range(min(10,num_its),num_its,5):
+      for subit in range(0,5):
+        graph_y = applySmoother(graph_y,b,A,2./3.)
+      new_graph = ax.plot_line_graph(x_values=graph_x, y_values=graph_y, line_color=BLUE, add_vertex_dots=False)
+      self.remove(it_text)
+      it_text = Text(f"Iteration: {it}").scale(0.5).shift(1.8*UP)
+      self.add(it_text)
+      self.remove(graph)
+      self.play(ReplacementTransform(graph,new_graph),run_time=0.3)
+      graph = new_graph
+      self.remove(new_graph)
+    self.add(new_graph)
+    conc_text = Text("Jacobi's method only transmits information locally!",color=BLUE).scale(0.6).shift(3*DOWN)
+    self.play(Create(conc_text))
+    self.wait(3)
