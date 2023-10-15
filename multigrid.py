@@ -89,10 +89,10 @@ def applyLinearInterpP(x: np.array) -> np.array:
 class JacobiFrequency(Scene):
   def construct(self):
 #    title = MathTex(r"\mbox{Solve} Ax=b").to_edge(UP)
-    title = Text("Jacobi's Method - Laplace's Equation").scale(0.8).to_edge(UP)
+    title = Text("Jacobi's Method — Laplace's Equation").scale(0.8).to_edge(UP)
     jacobitext = MathTex(r"\mathbf{x} = \mathbf{x} + \omega D^{-1}(\mathbf{b}-A\mathbf{x})").scale(0.8).shift(2.5*UP)
-    smoothtext = Text("Low Frequency Mode").scale(0.5).to_edge(DOWN).shift(3*LEFT)
-    randtext = Text("High Frequency Mode").scale(0.5).to_edge(DOWN).shift(3*RIGHT)
+    smoothtext = Text("Low Frequency Mode").scale(0.5).to_edge(DOWN).shift(3.5*LEFT)
+    randtext = Text("High Frequency Mode").scale(0.5).to_edge(DOWN).shift(3.5*RIGHT)
     r_label = MathTex(r"r = b - Ax").scale(0.8).shift(4.2*LEFT+1.2*UP)
     self.play(Write(title),Write(r_label),Write(smoothtext),Write(randtext),Write(jacobitext))
     
@@ -134,8 +134,7 @@ class JacobiFrequency(Scene):
     graph_rand = ax_rand.plot_line_graph(x_values=x_coords, y_values=rrand, line_color=BLUE, add_vertex_dots=False)
 
     self.play(Create(ax_main),Create(graph_main))
-    self.play(Create(ax_smooth),Create(graph_smooth))
-    self.play(Create(ax_rand),Create(graph_rand))
+    self.play(Create(ax_smooth),Create(graph_smooth),Create(ax_rand),Create(graph_rand))
     self.remove(graph_smooth,graph_rand,graph_main)
     
     num_its = 30
